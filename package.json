@@ -11,6 +11,12 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "license": "MIT",
+  "homepage": "https://github.com/Star-Hikari/chatluna-video-storyboard#readme",
+  "issues": "https://github.com/Star-Hikari/chatluna-video-storyboard/issues",
+  "repository": {
+  "type": "git",
+  "url": "git+https://github.com/Star-Hikari/chatluna-video-storyboard.git"
+  },
   "keywords": [
     "chatbot",
     "koishi",
