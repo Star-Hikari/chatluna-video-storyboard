@@ -1,22 +1,55 @@
 {
   "name": "koishi-plugin-chatluna-video-storyboard",
-  "description": "让你的模型可以观看B站视频~",
-  "version": "0.0.1",
+  "description": "让 ChatLuna 模型观看 B 站/本地视频：抽帧宫格 + 台词索引 + video_zoom",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
+  "types": "lib/index.d.ts",
   "files": [
     "lib",
-    "dist"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "license": "MIT",
-  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "chatluna",
+    "video",
+    "storyboard",
+    "bilibili"
   ],
-  "devDependencies": {},
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -b tsconfig.json --force && node ../../node_modules/esbuild/bin/esbuild src/index.ts --bundle --platform=node --format=cjs --target=es2022 --packages=external --outfile=lib/index.js",
+    "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true});require('fs').rmSync('tsconfig.tsbuildinfo',{force:true})\"",
+    "prepack": "npm run build",
+    "test:login": "node test/bili-cookie.mock.cjs"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.80",
+    "dsh-video-storyboard-patched": "^0.5.5",
+    "qrcode-terminal": "^0.12.0",
+    "zod": "3.25.76"
+  },
   "peerDependencies": {
-    "koishi": "^4.18.7"
+    "koishi": "^4.18.7",
+    "koishi-plugin-chatluna": "^1.4.0"
+  },
+  "koishi": {
+    "category": "ai",
+    "description": {
+      "zh": "让 ChatLuna 模型观看 B 站/本地视频：ffmpeg 抽帧拼成带编号的宫格图，配台词索引；支持 video_probe / video_storyboard / video_zoom，图片注入对话上下文；B 站 cookies 支持扫码登录与自动刷新。",
+      "en": "Let ChatLuna models watch Bilibili/local videos: ffmpeg storyboard grid with numbered cells and transcript index, plus probe/storyboard/zoom tools and QR-based Bilibili cookie login/refresh."
+    },
+    "service": {
+      "required": [
+        "chatluna"
+      ],
+      "optional": []
+    }
   }
 }
