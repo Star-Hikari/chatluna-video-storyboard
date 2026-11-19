@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import type { Config } from './config'
 import { resolveDataDir } from './config'
 import { isHttpUrl } from './utils'
@@ -43,6 +43,88 @@ export interface DataPaths {
   mediaDir: string
 }
 
+function isExecutableFile(file: string): boolean {
+  try {
+    return statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+
+/** 在 PATH 中找可执行文件；Windows 按 PATHEXT 补 .exe/.cmd 等后缀。 */
+function findExecutableOnPath(name: string): string | null {
+  const exts = process.platform === 'win32'
+    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+    : ['']
+  for (const rawDir of String(process.env.PATH ?? '').split(delimiter)) {
+    const dir = rawDir.trim().replace(/^"(.*)"$/, '$1')
+    if (!dir) continue
+    for (const ext of exts) {
+      const candidate = join(dir, name + ext)
+      if (isExecutableFile(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+function siblingFfprobe(ffmpegPath: string): string | null {
+  const dir = dirname(ffmpegPath)
+  const candidates = process.platform === 'win32'
+    ? ['ffprobe.exe', 'ffprobe']
+    : ['ffprobe']
+  for (const name of candidates) {
+    const candidate = join(dir, name)
+    if (isExecutableFile(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * 在所有 PATH 条目里找“旁边真的有 ffprobe”的 ffmpeg。
+ * 不能只信 `where ffprobe` / 第一个 ffmpeg：WinGet 的 Links 里可能是 0 字节 shim，
+ * 而真正的 ffprobe 在 Gyan.FFmpeg 的 bin 目录里。
+ */
+function findSiblingFfprobeOnPath(): string | null {
+  const names = process.platform === 'win32' ? ['ffmpeg.exe', 'ffmpeg'] : ['ffmpeg']
+  for (const rawDir of String(process.env.PATH ?? '').split(delimiter)) {
+    const dir = rawDir.trim().replace(/^"(.*)"$/, '$1')
+    if (!dir) continue
+    for (const name of names) {
+      const candidate = join(dir, name)
+      if (!isExecutableFile(candidate)) continue
+      const probe = siblingFfprobe(candidate)
+      if (probe) return probe
+    }
+  }
+  return null
+}
+
+/**
+ * ffmpeg 和 ffprobe 通常在同一目录。部分 Windows/WinGet 环境只把 ffmpeg 放进 PATH，
+ * ffprobe 只在包目录里；上游的 `spawn('ffprobe')` 因此会 ENOENT。
+ * 这里仅在用户没有显式指定 ffprobe 时，从 ffmpeg 同目录推导；优先真实同目录文件，
+ * 避免被 PATH 里的 0 字节 shim 误导。
+ */
+export function resolveSiblingFfprobe(config: Config): string | null {
+  const configured = String(config.ffprobePath ?? '').trim()
+  const isDefault = !configured || configured === 'ffprobe' || configured === 'ffprobe.exe'
+  if (!isDefault) return null
+
+  const ffmpeg = String(config.ffmpegPath ?? '').trim()
+  if (ffmpeg) {
+    const resolvedFfmpeg = isAbsolute(ffmpeg) || /[\\/]/.test(ffmpeg)
+      ? ffmpeg
+      : findExecutableOnPath(ffmpeg)
+    if (resolvedFfmpeg) {
+      const probe = siblingFfprobe(resolvedFfmpeg)
+      if (probe) return probe
+    }
+  }
+
+  // ffmpegPath 是裸名字或指到了一个没有 ffprobe 的目录：继续扫描所有 PATH 候选。
+  return findSiblingFfprobeOnPath()
+}
+
 /**
  * 把 Koishi 配置映射成上游认识的环境变量。
  *
@@ -59,6 +141,9 @@ export async function prepareEnvironment(config: Config): Promise<DataPaths> {
     mkdir(cacheDir, { recursive: true }),
     mkdir(mediaDir, { recursive: true }),
   ])
+
+  const siblingFfprobe = resolveSiblingFfprobe(config)
+  if (siblingFfprobe) config.ffprobePath = siblingFfprobe
 
   process.env.DSH_VIDEO_CACHE_DIR = cacheDir
   process.env.DSH_VIDEO_MEDIA_DIR = mediaDir

@@ -52,6 +52,10 @@ export function transcriptNotice(result: any): string {
   if (transcript.aiSubtitleSkipped) {
     return '\n[台词提示] 这次我丢掉了 B 站 AI 字幕，改用 ASR 重新听写。'
   }
+  if (transcript.source === 'subtitle-failed') {
+    return `\n[台词提示] 站点字幕抓取失败（${transcript.reason ?? 'unknown'}），` +
+      '这不是“没配 ASR”；如果画面有字幕，先以画面为准。'
+  }
   return ''
 }
 
@@ -62,8 +66,10 @@ export function buildPreface(result: any): string {
   )
   const from = Number(result?.window?.from ?? 0)
   const to = Number(result?.window?.to ?? 0)
+  const sheetCount = Array.isArray(result?.sheets) ? result.sheets.length : 1
+  const sheetText = sheetCount > 1 ? `${sheetCount} 张分镜图` : '分镜图'
   const lines = [
-    `[我眼前的画面] 这是我刚看完这段视频后看到的分镜图（共 ${count} 格，覆盖 ${formatSeconds(from)}–${formatSeconds(to)}），` +
+    `[我眼前的画面] 这是我刚看完这段视频后看到的${sheetText}（共 ${count} 格，覆盖 ${formatSeconds(from)}–${formatSeconds(to)}），` +
       '对应上面的文本清单。它不是主人新发的图片，是我自己从视频里看到的。',
     '我会结合这份清单回答，并注意：',
     '- 只描述图中可见内容；看不清就说“看不清”，不要编造。',
@@ -82,6 +88,9 @@ export function buildPreface(result: any): string {
     }
   } else if (transcript?.aiSubtitleSkipped) {
     lines.push('- 这次我丢掉了 B 站 AI 字幕，改用 ASR 重新听写。')
+  } else if (transcript?.source === 'subtitle-failed') {
+    lines.push(`- 注意：站点字幕抓取失败（${transcript.reason ?? 'unknown'}）；这不是“没配 ASR”。` +
+      '如果画面有字幕，先以画面为准。')
   } else if (transcript?.source === 'no-key') {
     lines.push('- 注意：这次没有可用的 ASR key，台词层没有真正运行；不要声称“视频里没说话”。')
   } else if (transcript?.source === 'asr-failed') {
@@ -99,7 +108,7 @@ export function buildFallbackPrompt(result: any): string {
     0,
   )
   return [
-    `下面是一张视频分镜宫格图，共 ${count} 格，每格左上角有编号。`,
+    `下面是我看到的视频分镜图（可能有多张），共 ${count} 格，每格左上角有编号，编号跨图连续。`,
     '请按 cell 编号逐格描述：',
     '1) 画面里是谁 / 在做什么 / 场景是什么；',
     '2) 能看清的文字、字幕、标题；',

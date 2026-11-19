@@ -21,7 +21,20 @@ const schema = z.object({
     .describe('上一次 storyboard 里的格子编号；给这个就不需要 from/to'),
   from: z.number().min(0).optional().describe('窗口起点（秒），cellId 未给时必填'),
   to: z.number().min(0).optional().describe('窗口终点（秒），cellId 未给时必填'),
-  cells: z.number().int().min(1).max(9).optional().describe('这张图几格；越少每格越大'),
+  maxFrames: z.number().int().min(1).max(48).optional()
+    .describe('这一段最多取几帧；默认取插件配置（9），越少每格越大'),
+  maxSheets: z.number().int().min(1).max(4).optional()
+    .describe('最多出几张放大图；默认 1'),
+  strategy: z.enum(['full', 'standard', 'compact']).optional()
+    .describe('放大取帧策略；默认 full'),
+  cutFloor: z.number().int().min(0).max(255).optional()
+    .describe('切点灵敏度 0-255；这一小段通常不用改'),
+  scanGap: z.number().min(0).max(30).optional()
+    .describe('切点近邻合并秒数；0=不合并'),
+  integral: z.boolean().optional()
+    .describe('长镜头按画面变化补帧；默认 true'),
+  integralSeconds: z.number().min(1).max(30).optional()
+    .describe('补帧采样代表的秒数 1-30'),
 })
 
 type Input = z.infer<typeof schema>
@@ -75,7 +88,10 @@ export class VideoZoomTool extends StructuredTool {
         return `放大窗口 ${(to - from).toFixed(0)}s 超过上限 ${config.maxDurationSec}s；请缩短窗口。`
       }
 
-      const cells = clamp(input.cells ?? config.maxZoomCells, 1, config.maxZoomCells)
+      const maxFrames = clamp(Number(input.maxFrames ?? config.zoomMaxFrames ?? 9), 1, 48)
+      const maxSheets = clamp(Number(input.maxSheets ?? config.zoomMaxSheets ?? 1), 1, 4)
+      const strategy = input.strategy ?? config.zoomStrategy ?? 'full'
+      const budget = clamp(Number(config.storyboardBudget ?? 360000), 64000, 640000)
       progress.start('正在放大重看这一段…')
 
       const frameSource = await resolveDirectVideoUrl(config, value, 1080)
@@ -84,16 +100,18 @@ export class VideoZoomTool extends StructuredTool {
         input: value,
         from,
         to,
-        cells,
-        sheets: 1,
-        budget: 1_200_000,
-        maxPerSheet: cells,
-        need: 'text',
-        detail: 'high',
+        maxFrames,
+        maxSheets,
+        strategy,
+        budget,
+        minFrames: 4,
+        uniformTier: 'auto',
+        ...(input.cutFloor !== undefined ? { cutFloor: input.cutFloor } : {}),
+        ...(input.scanGap !== undefined ? { scanGap: input.scanGap } : {}),
+        ...(input.integral !== undefined ? { integral: input.integral } : {}),
+        ...(input.integralSeconds !== undefined ? { integralSeconds: input.integralSeconds } : {}),
         pick: 'sharp',
         burn: 'index',
-        minGap: 0.8,
-        adaptive: false,
         audioStrip: true,
         frameSource,
         onProgress: progress.onProgress,
@@ -103,6 +121,8 @@ export class VideoZoomTool extends StructuredTool {
       const pngs = sheets.map((sheet) => sheet.png).filter((png): png is Buffer => Buffer.isBuffer(png))
       if (pngs.length === 0) throw new Error('zoom produced no image')
       const modelImages = await prepareModelImages(pngs, config, this.deps.ctx.logger)
+      const omittedImages = Math.max(0, pngs.length - modelImages.length)
+      const sheetWord = pngs.length > 1 ? '这些放大图' : '这张放大图'
 
       const text = '我把这一小段重新放大看了一遍，下面是我自己记下的细节：\n\n' +
         sanitizeManifest(format.formatForDetail(result, { detail: 'high' })) + transcriptNotice(result)
@@ -123,18 +143,21 @@ export class VideoZoomTool extends StructuredTool {
 
       let note: string
       if (injected) {
-        note = '\n\n[我已经把这一小段放大看清了；可以直接说画面细节。]'
+        note = `\n\n[我已经把${sheetWord}放大看清了；可以直接说画面细节。]`
       } else {
         const described = await describeWithImageModel(this.deps.ctx, config, modelImages, result)
         note = described
           ? `\n\n[我现在还不能直接看图，下面是视觉帮手替我看到的]\n${described}`
           : '\n\n[我现在还不能直接看图，也没有视觉帮手；只能先依据这份文本清单回答，别假装看过画面。]'
       }
+      if (omittedImages > 0) {
+        note += `\n\n[还有 ${omittedImages} 张放大图没有注入当前上下文；可以缩小窗口或再调用一次 video_zoom。]`
+      }
 
       try {
         this.deps.ctx.logger.info(
-          `[chatluna-video] zoom ok input=${value.slice(0, 100)} ${from}-${to}s cells=${cells} ` +
-          `direct=${frameSource ? 'yes' : 'no'}`,
+          `[chatluna-video] zoom ok input=${value.slice(0, 100)} ${from}-${to}s frames=${maxFrames} ` +
+          `images=${pngs.length} direct=${frameSource ? 'yes' : 'no'}`,
         )
       } catch {
         /* ignore */

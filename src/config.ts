@@ -1,6 +1,9 @@
 import { Schema } from 'koishi'
 import { resolve } from 'node:path'
 
+export type StoryboardStrategy = 'auto' | 'compact' | 'standard' | 'full'
+export type ZoomStrategy = 'full' | 'standard' | 'compact'
+
 export interface Config {
   // ---- 外部程序 ----
   ffmpegPath: string
@@ -12,8 +15,17 @@ export interface Config {
   dataDir: string
   mediaMaxMB: number
   maxDurationSec: number
-  maxCells: number
-  maxZoomCells: number
+  /** @deprecated 1.0.x：仅用于升级迁移，2.0.0 不再生效 */
+  maxCells?: number
+  /** @deprecated 1.0.x：仅用于升级迁移，2.0.0 不再生效 */
+  maxZoomCells?: number
+  storyboardStrategy: StoryboardStrategy
+  maxFrames: number
+  maxSheets: number
+  storyboardBudget: number
+  zoomMaxFrames: number
+  zoomMaxSheets: number
+  zoomStrategy: ZoomStrategy
   maxConcurrent: number
   frameConcurrency: number
 
@@ -75,15 +87,53 @@ const StorageConfig = Schema.object({
     .max(7200)
     .description('单次 storyboard 允许处理的最大时长（秒）。超过则要求 from/segment 分段；默认 10 分钟。'),
   maxCells: Schema.number()
-    .default(9)
     .min(1)
     .max(16)
-    .description('单张宫格最多几格。格子越多每格越小；9 格适合认脸/动作，16 格只适合看构图。'),
+    .hidden()
+    .description('已弃用（1.0.x）：旧版单张宫格最多几格。2.0.0 会自动迁移到 maxFrames/maxSheets。'),
   maxZoomCells: Schema.number()
-    .default(6)
     .min(1)
     .max(9)
-    .description('video_zoom 单张最多几格；越少每格越大。'),
+    .hidden()
+    .description('已弃用（1.0.x）：旧版 zoom 单张最多几格。2.0.0 会自动迁移到 zoomMaxFrames。'),
+  storyboardStrategy: Schema.union([
+    Schema.const('auto').description('自动（按密度挑最省的清晰档）'),
+    Schema.const('compact').description('紧凑（更省 token）'),
+    Schema.const('standard').description('标准'),
+    Schema.const('full').description('清晰（格子更大、图片更多）'),
+  ]).default('auto')
+    .description('分镜取帧策略。auto 会按切点密度自动选择，通常最划算。'),
+  maxFrames: Schema.number()
+    .default(48)
+    .min(0)
+    .max(256)
+    .description('单次最多取多少帧；0=不封顶。默认 48，长片请配合 from/segment。'),
+  maxSheets: Schema.number()
+    .default(2)
+    .min(1)
+    .max(8)
+    .description('单次最多出几张分镜图。默认 2，与单轮图片注入上限对齐。'),
+  storyboardBudget: Schema.number()
+    .default(360000)
+    .min(64000)
+    .max(640000)
+    .description('单张分镜图的像素预算；0.7.x 默认 360000（约 798×449 / 222 token）。'),
+  zoomMaxFrames: Schema.number()
+    .default(9)
+    .min(1)
+    .max(48)
+    .description('video_zoom 单图最多取几帧；越少每格越大。'),
+  zoomMaxSheets: Schema.number()
+    .default(1)
+    .min(1)
+    .max(4)
+    .description('video_zoom 最多出几张图；默认 1。'),
+  zoomStrategy: Schema.union([
+    Schema.const('full').description('清晰（默认）'),
+    Schema.const('standard').description('标准'),
+    Schema.const('compact').description('紧凑'),
+  ]).default('full')
+    .description('video_zoom 的取帧策略；默认 full，优先看清细节。'),
   maxConcurrent: Schema.number()
     .default(1)
     .min(1)
@@ -181,10 +231,10 @@ const ImageOptions = Schema.union([
   Schema.object({
     advancedImage: Schema.const(true).required(),
     imageMaxEdge: Schema.number()
-      .default(1280)
+      .default(800)
       .min(640)
-      .max(2048)
-      .description('注入模型前的最长边（像素）。越小请求体越小；1280 通常够读宫格编号与字幕。'),
+      .max(1600)
+      .description('注入模型前的最长边（像素）。0.7.x 画布本身最大 800px；默认 800 即可。'),
     imageQuality: Schema.number()
       .default(3)
       .min(2)
@@ -212,6 +262,66 @@ const PermissionConfig = Schema.object({
     .default(false)
     .description('输出更多日志（不包含 cookies / API Key）。'),
 }).description('权限与调试')
+
+function legacyInt(value: unknown, min: number, max: number): number | null {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return null
+  return Math.min(max, Math.max(min, Math.round(number)))
+}
+
+/**
+ * 1.0.x -> 2.0.0 配置迁移。
+ *
+ * 旧版没有 maxFrames/maxSheets，只有 maxCells/maxZoomCells。这里只在**新字段仍是默认值**时
+ * 才迁移，避免覆盖用户已经手动设置的新配置；旧版本来就是单图，所以 maxSheets 固定为 1。
+ * 迁移只修改内存中的 config，不写回 koishi.yml；返回的提示会由 apply() 打到日志。
+ */
+export function migrateLegacyConfig(config: Config): string[] {
+  const notes: string[] = []
+  const oldCells = legacyInt(config.maxCells, 1, 256)
+  if (oldCells !== null) {
+    const untouched = config.maxFrames === 48
+      && config.maxSheets === 2
+      && config.storyboardStrategy === 'auto'
+    if (untouched) {
+      config.maxFrames = oldCells
+      config.maxSheets = 1
+      config.storyboardStrategy = 'standard'
+      notes.push(
+        `检测到旧版 maxCells=${oldCells}，已迁移为 maxFrames=${oldCells} / maxSheets=1 / ` +
+        'storyboardStrategy=standard（保持旧版单图行为）；请在控制台确认。',
+      )
+    } else {
+      notes.push(
+        `检测到旧版 maxCells=${oldCells}，但新的 maxFrames/maxSheets/storyboardStrategy 已设置，` +
+        '保留新配置并忽略 maxCells。',
+      )
+    }
+  }
+
+  const oldZoomCells = legacyInt(config.maxZoomCells, 1, 48)
+  if (oldZoomCells !== null) {
+    const untouched = config.zoomMaxFrames === 9
+      && config.zoomMaxSheets === 1
+      && config.zoomStrategy === 'full'
+    if (untouched) {
+      config.zoomMaxFrames = oldZoomCells
+      config.zoomMaxSheets = 1
+      config.zoomStrategy = 'full'
+      notes.push(
+        `检测到旧版 maxZoomCells=${oldZoomCells}，已迁移为 zoomMaxFrames=${oldZoomCells} / ` +
+        'zoomMaxSheets=1 / zoomStrategy=full。',
+      )
+    } else {
+      notes.push(
+        `检测到旧版 maxZoomCells=${oldZoomCells}，但新的 zoomMaxFrames/zoomMaxSheets/zoomStrategy ` +
+        '已设置，保留新配置并忽略 maxZoomCells。',
+      )
+    }
+  }
+
+  return notes
+}
 
 export const Config = Schema.intersect([
   DependencyConfig,

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { Context, Schema } from 'koishi'
 import { BiliCookieManager } from './bili-cookie'
 import { CellStore } from './cell-store'
-import { Config, resolveDataDir, type Config as ConfigType } from './config'
+import { Config, migrateLegacyConfig, resolveDataDir, type Config as ConfigType } from './config'
 import { probeInput, prepareEnvironment, loadUpstream } from './upstream'
 import { Semaphore } from './utils'
 import { VideoProbeTool } from './tools/probe'
@@ -12,11 +12,16 @@ import type { ToolDeps } from './tools/shared'
 
 export const name = 'chatluna-video-storyboard'
 export const inject = ['chatluna']
-export { Config }
+export { Config, migrateLegacyConfig }
 export { BiliCookieManager } from './bili-cookie'
 export { prepareModelImages } from './image'
+export { resolveSiblingFfprobe } from './upstream'
 
 export async function apply(ctx: Context, config: ConfigType) {
+  for (const note of migrateLegacyConfig(config)) {
+    ctx.logger.warn(`[chatluna-video] ${note}`)
+  }
+
   const paths = await prepareEnvironment(config).catch((error) => {
     ctx.logger.warn('[chatluna-video] 无法创建数据目录，将使用默认路径：', error)
     return {

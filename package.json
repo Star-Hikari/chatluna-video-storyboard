@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-chatluna-video-storyboard",
   "description": "让 ChatLuna 模型观看 B 站/本地视频：抽帧宫格 + 台词索引 + video_zoom",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "types": "lib/index.d.ts",
@@ -14,8 +14,8 @@
   "homepage": "https://github.com/Star-Hikari/chatluna-video-storyboard#readme",
   "issues": "https://github.com/Star-Hikari/chatluna-video-storyboard/issues",
   "repository": {
-  "type": "git",
-  "url": "git+https://github.com/Star-Hikari/chatluna-video-storyboard.git"
+    "type": "git",
+    "url": "git+https://github.com/Star-Hikari/chatluna-video-storyboard.git"
   },
   "keywords": [
     "chatbot",
@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@langchain/core": "^0.3.80",
-    "dsh-video-storyboard-patched": "^0.5.5",
+    "dsh-video-storyboard-patched": "^0.7.2",
     "qrcode-terminal": "^0.12.0",
     "zod": "3.25.76"
   },

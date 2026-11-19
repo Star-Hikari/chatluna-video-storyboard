@@ -1,6 +1,6 @@
 # koishi-plugin-chatluna-video-storyboard
 
-让 ChatLuna 模型真正“看”视频：用 ffmpeg 把视频抽帧拼成一张带编号的宫格图，再配一份 `cell k = 时间码 + 台词` 的文本清单；模型可以引用某一格，也可以继续 `video_zoom` 放大重看。
+让 ChatLuna 模型真正“看”视频：用 ffmpeg 把视频抽帧拼成带编号的分镜图（可能一张或多张），再配一份 `cell k = 时间码 + 台词` 的文本清单；模型可以引用某一格，也可以继续 `video_zoom` 放大重看。
 
 对话环境按 QQ / OneBot 设计，不需要在 B 站发评论或做任何写操作。
 
@@ -99,15 +99,20 @@ plugins:
     # ↑ 可留空：默认使用 dataDir/cookies.txt，由扫码登录自动维护
     dataDir: data/chatluna-video
     maxDurationSec: 600
-    maxCells: 9
-    maxZoomCells: 6
+    storyboardStrategy: auto
+    maxFrames: 48
+    maxSheets: 2
+    storyboardBudget: 360000
+    zoomMaxFrames: 9
+    zoomMaxSheets: 1
+    zoomStrategy: full
     maxConcurrent: 1
     frameConcurrency: 2
     progress: true
     sendSheetToChat: false
     imageModel: 无
     advancedImage: false
-    imageMaxEdge: 1280
+    imageMaxEdge: 800
     imageQuality: 3
     maxRequestImageMB: 2.5
     maxImagesPerRequest: 2
@@ -131,7 +136,7 @@ plugins:
 | 分组 | 内容 |
 |---|---|
 | 运行依赖 | ffmpeg / ffprobe / yt-dlp |
-| 存储与限制 | 缓存目录、缓存上限、时长/格数/并发 |
+| 存储与限制 | 缓存目录、缓存上限、时长/帧数/张数/并发 |
 | B 站登录 | 自动登录开关、cookies 路径、检查/二维码参数 |
 | 台词 / ASR | 台词开关、AI 字幕重跑、ASR 连接 |
 | 交互与图片 | 进度提示、是否发图、图片模型、高级图片参数 |
@@ -141,7 +146,33 @@ plugins:
 
 - 关闭 **B 站自动登录**：检查间隔、二维码超时、刷新次数、refresh_token 整组隐藏；`cookiesFile` 仍保留，方便手动提供。
 - 关闭 **台词层**：AI 字幕重跑和 ASR 连接整组隐藏。
-- 关闭 **高级图片参数**：最长边、JPEG 质量、请求体上限、单轮图片数隐藏；运行时按默认值 1280 / 3 / 2.5MB / 2 张处理。
+- 关闭 **高级图片参数**：最长边、JPEG 质量、请求体上限、单轮图片数隐藏；运行时按默认值 800 / 3 / 2.5MB / 2 张处理。
+
+### 2.0.0 配置迁移
+
+2.0.0 跟随上游 0.7.x 换掉了旧的格数参数：
+
+```yaml
+# 旧
+maxCells: 9
+maxZoomCells: 6
+
+# 新
+storyboardStrategy: auto
+maxFrames: 48
+maxSheets: 2
+storyboardBudget: 360000
+zoomMaxFrames: 9
+zoomMaxSheets: 1
+zoomStrategy: full
+```
+
+2.0.0 会自动识别旧字段（隐藏保留）：
+
+- 纯旧配置：`maxCells` → `maxFrames`，并设 `maxSheets: 1` + `storyboardStrategy: standard`，保持旧版单图行为；
+- `maxZoomCells` → `zoomMaxFrames`，并设 `zoomMaxSheets: 1` + `zoomStrategy: full`；
+- 如果新的 `maxFrames/maxSheets/storyboardStrategy` 已经手动设置，则新字段优先，旧字段忽略；
+- 迁移只作用于内存配置，并在日志里提示；建议确认后从 YAML 删掉旧字段。
 
 插件只注册工具，不添加命令；需要 ChatLuna 处于 Agent / plugin 模式（`chatluna-agent` 已安装时按默认权限启用）。
 
@@ -150,15 +181,15 @@ plugins:
 插件依赖两个普通 npm 包，不能使用 `workspace:*`：
 
 ```json
-"dsh-video-storyboard-patched": "^0.5.5",
+"dsh-video-storyboard-patched": "^0.7.2",
 "qrcode-terminal": "^0.12.0"
 ```
 
-AI 字幕识别和 MiMo ASR 是对上游 0.5.4 的本地补丁，已做成独立 fork：
+AI 字幕识别和 MiMo ASR 是对上游 0.7.1 的本地补丁，已做成独立 fork：
 
 - 源码：`koishi-app/vendor/dsh-video-storyboard-patched`
 - 包名：`dsh-video-storyboard-patched`
-- 版本：`0.5.5`
+- 版本：`0.7.2`
 - 许可证：Apache-2.0（LICENSE / NOTICE 随 fork 发布）
 
 发布顺序：
@@ -188,7 +219,7 @@ npm publish
 模型通常会：
 
 1. `video_probe` 看时长/有没有台词；
-2. `video_storyboard` 出第一张宫格；
+2. `video_storyboard` 出第一批分镜图；
 3. 下一轮看到注入的宫格图，用中文回答，并引用 `第 k 格（时间码）`。
 
 追问：
@@ -333,21 +364,26 @@ asrEnabled: false
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `ffmpegPath` / `ffprobePath` | `ffmpeg` / `ffprobe` | 可执行文件路径；在 PATH 中可留默认 |
+| `ffmpegPath` / `ffprobePath` | `ffmpeg` / `ffprobe` | 可执行文件路径；默认会优先从 ffmpeg 同目录自动找 ffprobe |
 | `ytdlpPath` | 空 | 留空自动在 PATH 与 pip 脚本目录查找 |
 | `cookiesFile` | 空 | Netscape cookies.txt 路径；留空=自动使用 `dataDir/cookies.txt`（扫码登录维护） |
 | `dataDir` | `data/chatluna-video` | 缓存、媒体、cell 表目录 |
 | `mediaMaxMB` | 300 | 视频缓存上限；超限按最久未用删除 |
 | `maxDurationSec` | 600 | 单次 storyboard 时长上限 |
-| `maxCells` | 9 | 单张宫格最多几格 |
-| `maxZoomCells` | 6 | zoom 单张最多几格 |
+| `storyboardStrategy` | auto | 分镜策略：auto / compact / standard / full |
+| `maxFrames` | 48 | 单次最多取帧；0=不封顶 |
+| `maxSheets` | 2 | 单次最多分镜图数；与图片注入上限对齐 |
+| `storyboardBudget` | 360000 | 单图像素预算（约 798×449 / 222 token） |
+| `zoomMaxFrames` | 9 | zoom 单图最多帧数 |
+| `zoomMaxSheets` | 1 | zoom 最多图数 |
+| `zoomStrategy` | full | zoom 取帧策略：full / standard / compact |
 | `maxConcurrent` | 1 | 同时扫描的视频数 |
 | `frameConcurrency` | 2 | 单次取帧的 ffmpeg 并发 |
 | `progress` | true | 是否发“正在解析/下载/扫描”提示 |
 | `sendSheetToChat` | false | 是否把宫格图也发到聊天里 |
 | `imageModel` | 无 | 主模型不支持图片时的转述模型，如 `qwen/qwen3.8-flash` |
 | `advancedImage` | false | 是否展开高级图片参数；关闭时下面 4 项在控制台隐藏 |
-| `imageMaxEdge` | 1280 | 注入模型前图片最长边；越小请求体越小 |
+| `imageMaxEdge` | 800 | 注入模型前图片最长边；0.7.x 画布最大 800px |
 | `imageQuality` | 3 | JPEG 质量（ffmpeg qscale，2 最好、31 最差） |
 | `maxRequestImageMB` | 2.5 | 单次注入图片的 base64 总大小上限（MB） |
 | `maxImagesPerRequest` | 2 | 单轮最多注入几张工具图，防止并行 zoom 撑爆请求体 |
@@ -401,27 +437,40 @@ asrEnabled: false
 
 检查 `cookiesFile` 是否存在、是否包含 `SESSDATA`；yt-dlp 只读这个 Netscape 文件。也可能是 B 站风控，稍后重试或重新扫码。
 
+### `ffprobe not found` / `spawn ffprobe ENOENT`
+
+常见于 Windows WinGet：`ffmpeg.exe` 在 PATH 中，但 `ffprobe.exe` 只在 ffmpeg 包目录里。
+
+2.0.0 会从 ffmpeg 同目录自动找 `ffprobe` 并写入 `DSH_FFPROBE_PATH`；如果仍失败，手动指定：
+
+```yaml
+ffprobePath: C:\Users\you\...\ffmpeg\bin\ffprobe.exe
+```
+
+Linux 同理可设 `/usr/bin/ffprobe`。改完重启插件。
+
 ### `HTTP Error 567` / `412`
 
 B 站风控/限流。567 通常要登录 cookies；412 等几十秒再试。不要连续重复调用。
 
 ### `413 Request Entity Too Large`
 
-不是上下文 token 超限，而是模型网关的**请求体字节**超限。典型触发：同一轮并行调用两次 `video_zoom`，每张 PNG 约 2.1–2.3MB，base64 后两张合计约 5.6MB。
+不是上下文 token 超限，而是模型网关的**请求体字节**超限。0.7.x 画布已限制在 800px 内，单图通常约 222–384 token，但多张 sheet 仍可能叠加。
 
 插件已内置处理：
 
-- 注入前统一转 JPEG，最长边 1280、q=3；
+- 注入前统一转 JPEG，最长边 800、q=3；
 - 单轮最多注入 `maxImagesPerRequest`（默认 2）张；
 - 总 base64 超过 `maxRequestImageMB`（默认 2.5MB）会降质/缩图，仍超则只保留第一张。
 
 如果仍报 413，继续调低：
 
 ```yaml
-imageMaxEdge: 1024
+imageMaxEdge: 640
 imageQuality: 5
 maxRequestImageMB: 2
 maxImagesPerRequest: 1
+maxSheets: 1
 ```
 
 ### `transcript="no-key"`
@@ -448,7 +497,7 @@ ASR 请求失败。看清单里的错误；检查 `asrBaseUrl`、key、模型名
 
 ### 图片太大 / 模型报请求体过大
 
-调低 `maxCells`（如 6），或把 `imageModel`/主模型换成支持更大图片的；上游默认 1.2M 像素，一般没问题。
+调低 `maxSheets`（如 1）、`maxFrames` 或 `imageMaxEdge`；0.7.x 默认单图 800px，一般不会触发请求体上限。
 
 ---
 
@@ -477,6 +526,96 @@ src/
 ```
 
 烟测脚本在仓库的 `.research/poc/plugin-smoke.cjs`（需要工作区 fixture 和 ffmpeg）；B站登录/刷新可用 `yarn workspace koishi-plugin-chatluna-video-storyboard test:login`（mock fetch，不需要真实账号）。正式使用时不需要。
+
+---
+
+## 更新日志
+
+### 2.0.0 — 2026-11-20
+
+#### 上游升级
+
+- 分镜引擎升级到 `dsh-video-storyboard@0.7.1`，通过独立 fork `dsh-video-storyboard-patched@0.7.2` 接入。
+- 采用 0.6.x 起的档位 + 可变网格（`strategy` / `tier` / `maxFrames` / `maxSheets`），不再使用旧的固定 `cells` 宫格。
+- 单张画布最大 800px，默认约 222–384 token/图，明显低于 1.0.0 的 1.2M 像素画布。
+- 同步上游 0.7.0/0.7.1 的 Windows `windowsHide`、长视频 720p 缓存清理修复、`subtitle-failed` 语义等改动。
+
+#### 新增
+
+- `video_storyboard` 支持：
+  - `maxFrames`：单次最多取帧；
+  - `maxSheets`：最多出几张分镜图；
+  - `strategy`：`auto / compact / standard / full`；
+  - `budget`：单图像素预算；
+  - `cutFloor`、`scanGap`、`integral`、`integralSeconds` 等精细参数。
+- 支持多张分镜图：编号跨图连续，`video_zoom({ cellId })` 可以从任意一张图定位。
+- `video_zoom` 改为 `maxFrames / maxSheets / strategy / minFrames`，默认一张放大图、少量大格。
+- AI 字幕检测与回退：
+  - 识别 B 站 `ai-zh` / `ai-en`；
+  - `asrOnAiSubtitle` 开启时优先 ASR 重跑；
+  - ASR 失败或空结果时自动回退 AI 字幕，并在结果中标记 `fallback` / `asrError`。
+- `subtitle-failed`：站点字幕抓取失败不再伪装成“没配 ASR”。
+- ffprobe 自动探测：ffmpeg 可用但 ffprobe 不在 PATH 时，自动从 ffmpeg 同目录查找并写入 `DSH_FFPROBE_PATH`，修复 WinGet 环境下的 `spawn ffprobe ENOENT`。
+
+#### 破坏性变更
+
+旧工具参数已删除：
+
+```text
+cells / need / maxPerSheet / sheets / adaptive
+```
+
+旧配置项已从配置面板移除：
+
+```text
+maxCells / maxZoomCells
+```
+
+新默认值：
+
+```yaml
+storyboardStrategy: auto
+maxFrames: 48
+maxSheets: 2
+storyboardBudget: 360000
+zoomMaxFrames: 9
+zoomMaxSheets: 1
+zoomStrategy: full
+imageMaxEdge: 800
+```
+
+`detail` 现在只控制文本清单的台词字符数，不再控制格子大小；格子清晰度由 `strategy` / `budget` / `maxSheets` 决定。
+
+#### 从 1.0.x 升级
+
+2.0.0 会自动识别旧配置：
+
+| 旧配置 | 迁移结果 |
+|---|---|
+| `maxCells: 6` | `maxFrames: 6`、`maxSheets: 1`、`storyboardStrategy: standard` |
+| `maxZoomCells: 4` | `zoomMaxFrames: 4`、`zoomMaxSheets: 1`、`zoomStrategy: full` |
+
+- 旧字段作为隐藏字段保留，不会出现在配置面板。
+- 迁移只在新字段仍为默认值时执行；如果已经手动设置新字段，则新字段优先，旧字段忽略。
+- 迁移只修改内存配置，并打印日志；建议确认后从 YAML 删除旧字段。
+- 旧版是单图行为，所以迁移后 `maxSheets` 固定为 1；想要多图可手动改成 2。
+
+#### 修复与稳定性
+
+- 修复 0.7.x 多 sheet 场景下图片注入数量与文本清单不一致的问题：超出 `maxImagesPerRequest` 的图会在结果中明确提示，文本清单仍保留全部 cell。
+- 图片压缩默认最长边从 1280 调整为 800；关闭“高级图片参数”时也按 800 执行。
+- 保留 JPEG 转换、单轮图片数上限、base64 总大小上限，继续防 413。
+- 保留 B 站二维码登录、cookies 自动刷新、MiMo ASR、第一人称工具文案。
+
+#### 验证
+
+- 本地 build、smoke、配置迁移测试通过。
+- B 站真实视频 AI 字幕 + ASR 空结果回退通过。
+- MiMo 中文口播 ASR 通过。
+- 225s 视频 `maxSheets: 2` 生成 2 张图、7 个 cell，两张图同时注入。
+- 跨图 `cellId: 6` 的 `video_zoom` 通过。
+- npm pack 检查通过。
+- 2.0.0 仍只注册 `video_probe / video_storyboard / video_zoom` 三个工具；`video_locate` / `video_help` / `video_subtitles` 尚未接入。
 
 ---
 

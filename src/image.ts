@@ -13,7 +13,7 @@ const base64Size = (data: Buffer) => Math.ceil(data.length / 3) * 4
  * 上游 PNG 一张 1130×1014 约 2.1–2.3MB，base64 后约 2.7–2.9MB；
  * 两张 zoom 一起注入就会超过网关的 body limit。
  *
- * 这里统一转成 JPEG（最长边 1280、q=3），两张约 0.6MB；
+ * 这里统一转成 JPEG（最长边 800、q=3），0.7.x 画布通常只有 ~0.2MB；
  * 仍超上限时降质/缩图，最后只保留第一张，避免整轮对话失败。
  */
 export async function prepareModelImages(
@@ -25,7 +25,7 @@ export async function prepareModelImages(
   if (selected.length === 0) return []
 
   let images = await Promise.all(
-    selected.map((png) => encodeOne(png, config.imageMaxEdge || 1280, config.imageQuality || 3, config)),
+    selected.map((png) => encodeOne(png, config.imageMaxEdge || 800, config.imageQuality || 3, config)),
   )
 
   const limit = Math.max(0.5, config.maxRequestImageMB || 2.5) * 1024 * 1024
@@ -34,7 +34,7 @@ export async function prepareModelImages(
   // 第一轮压缩仍超限：再缩到 1024、质量降到 7 左右。
   images = await Promise.all(
     selected.map((png) =>
-      encodeOne(png, Math.min(config.imageMaxEdge || 1280, 1024), Math.max(7, (config.imageQuality || 3) + 3), config),
+      encodeOne(png, Math.min(config.imageMaxEdge || 800, 640), Math.max(7, (config.imageQuality || 3) + 3), config),
     ),
   )
   if (totalBase64(images) <= limit) {

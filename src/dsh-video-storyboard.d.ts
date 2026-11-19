@@ -4,16 +4,22 @@ declare module 'dsh-video-storyboard-patched/pipeline' {
     from?: number
     to?: number
     segment?: number
-    cells?: number
-    sheets?: number
+    strategy?: 'auto' | 'full' | 'standard' | 'compact' | 'native' | 'skim' | 'brief'
+    maxFrames?: number
+    maxSheets?: number
+    minFrames?: number
+    uniformTier?: 'auto' | number | null
+    tierMap?: Record<string, number> | null
+    tierCurve?: 'docx' | 'perceptual' | null
     budget?: number
-    maxPerSheet?: number
-    need?: 'shot' | 'scene' | 'text'
-    detail?: 'low' | 'med' | 'high'
+    cutFloor?: number
+    scanGap?: number
+    integral?: boolean
+    integralSeconds?: number
+    planOnly?: boolean
+    maxCanvasSide?: number
     pick?: 'sharp' | 'mid' | 'thumb'
     burn?: 'index' | 'none'
-    minGap?: number
-    adaptive?: boolean
     transcript?: 'auto' | 'off'
     transcriptFile?: string
     asrKey?: string
@@ -41,10 +47,14 @@ declare module 'dsh-video-storyboard-patched/pipeline' {
 
   export interface StoryboardCell {
     i: number
+    sheet?: number
     t_start: number
     t_end: number
     t_frame?: number
+    tier?: number
+    cell?: { w: number; h: number }
     text?: string
+    lines?: Array<{ from: number; to: number; text: string }>
   }
 
   export interface StoryboardSheet {
@@ -64,7 +74,17 @@ declare module 'dsh-video-storyboard-patched/pipeline' {
     info: { path?: string; duration: number; [key: string]: any }
     window: { from: number; to: number; duration: number }
     sheets: StoryboardSheet[]
-    transcript?: { source: string; chars?: number; [key: string]: any } | null
+    transcript?: {
+      source: string
+      chars?: number
+      model?: string | null
+      ai?: boolean
+      aiSubtitleSkipped?: boolean
+      fallback?: string
+      asrError?: string
+      error?: string
+      [key: string]: any
+    } | null
     plan?: Record<string, any>
     segment?: { sec: number; index: number; total: number; leftSec: number }
     [key: string]: any

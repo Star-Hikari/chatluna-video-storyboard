@@ -18,7 +18,7 @@ const norm = (value: string | undefined | null) =>
     .toLowerCase()
 
 /**
- * 自己的 cell 表：上游 0.5.4 的 `lookupCell` 没有从 package exports 暴露，
+ * 自己的 cell 表：上游 0.7.1 的 `lookupCell` 没有从 package exports 暴露，
  * 所以这里在每次 storyboard 后记录 `cellId -> from/to`，供 video_zoom 使用。
  * 同时用原始 input 与下载后的本地路径做别名，模型传 URL 或本地路径都能查到。
  */
