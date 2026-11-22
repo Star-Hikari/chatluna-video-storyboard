@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-chatluna-video-storyboard",
   "description": "让 ChatLuna 模型观看 B 站/本地视频：抽帧宫格 + 台词索引 + video_zoom",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "types": "lib/index.d.ts",

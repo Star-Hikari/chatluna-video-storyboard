@@ -388,6 +388,7 @@ asrEnabled: false
 | `maxRequestImageMB` | 2.5 | 单次注入图片的 base64 总大小上限（MB） |
 | `maxImagesPerRequest` | 2 | 单轮最多注入几张工具图，防止并行 zoom 撑爆请求体 |
 | `allowedGroups` | `[]` | 允许使用的群号；留空不限制；私聊不受限 |
+| `debug` | false | 是否输出启动自检等详细日志；关闭时启动只保留一条启用提示 |
 | `biliLoginEnabled` | true | 启动检查 cookies，缺失/失效时控制台二维码登录 |
 | `biliCookieCheckMinutes` | 360 | 每隔多少分钟检查 cookies/刷新 |
 | `biliQrTimeoutSec` | 180 | 一次二维码登录的等待上限（秒） |
@@ -530,6 +531,17 @@ src/
 ---
 
 ## 更新日志
+
+### 2.1.0 — 2026-11-22
+
+#### 日志优化
+
+- `debug: false`（默认）时，启动只输出一条 info：
+  `[chatluna-video] 视频分镜已启用（3 个工具）`
+- `debug: true` 时才输出完整启动自检：ffmpeg / ffprobe / yt-dlp / cookies / ASR / 上游加载等详细状态。
+- B 站 cookie 的“启动检查”和“cookies 有效”例行日志也纳入 `debug` 控制。
+- 扫码登录、登录成功、cookie 自动刷新、警告和错误日志不受影响，仍会正常显示。
+- 配置页的 `debug` 说明同步更新；本次不改变工具参数、配置字段或视频处理流程。
 
 ### 2.0.0 — 2026-11-20
 

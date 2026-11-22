@@ -80,10 +80,14 @@ export async function apply(ctx: Context, config: ConfigType) {
     )
   }
 
-  ctx.logger.info(
-    `[chatluna-video] registered ${tools.length} tools; data=${paths.dir} ` +
-    `asr=${config.asrEnabled ? 'on' : 'off'} maxDuration=${config.maxDurationSec}s`,
-  )
+  if (config.debug) {
+    ctx.logger.info(
+      `[chatluna-video] registered ${tools.length} tools; data=${paths.dir} ` +
+      `asr=${config.asrEnabled ? 'on' : 'off'} maxDuration=${config.maxDurationSec}s`,
+    )
+  } else {
+    ctx.logger.info(`[chatluna-video] 视频分镜已启用（${tools.length} 个工具）`)
+  }
 
   ctx.on('ready', () => {
     void doctor(ctx, config).catch((error) => {
@@ -98,7 +102,9 @@ export async function apply(ctx: Context, config: ConfigType) {
  */
 async function doctor(ctx: Context, config: ConfigType) {
   const warn = (message: string) => ctx.logger.warn(`[chatluna-video] ${message}`)
-  const info = (message: string) => ctx.logger.info(`[chatluna-video] ${message}`)
+  const info = (message: string) => {
+    if (config.debug) ctx.logger.info(`[chatluna-video] ${message}`)
+  }
 
   try {
     const { ytdlp } = await loadUpstream()

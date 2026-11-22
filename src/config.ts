@@ -260,7 +260,7 @@ const PermissionConfig = Schema.object({
     .description('允许使用视频工具的群号；留空=不限制。私聊不受此限制。'),
   debug: Schema.boolean()
     .default(false)
-    .description('输出更多日志（不包含 cookies / API Key）。'),
+    .description('输出启动自检等详细日志（不包含 cookies / API Key）。关闭时启动只保留一条启用提示。'),
 }).description('权限与调试')
 
 function legacyInt(value: unknown, min: number, max: number): number | null {

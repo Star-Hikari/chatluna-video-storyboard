@@ -104,8 +104,8 @@ export class BiliCookieManager {
     }, minutes * 60_000)
     if (typeof this.timer?.unref === 'function') this.timer.unref()
 
-    this.ctx.logger.info(
-      `[chatluna-video] B站登录：启动检查 cookies（每 ${minutes} 分钟复查）` +
+    this.info(
+      `B站登录：启动检查 cookies（每 ${minutes} 分钟复查）` +
       (this.cookieFile ? `；文件 ${this.cookieFile}` : '；未启用自动登录'),
     )
     void this.ensure('startup').catch((error) => {
@@ -141,8 +141,8 @@ export class BiliCookieManager {
     if (status.ok) {
       this.lastValid = Date.now()
       if (reason !== 'tool') {
-        this.ctx.logger.info(
-          `[chatluna-video] B站 cookies 有效${status.uname ? `：${status.uname}` : ''}` +
+        this.info(
+          `B站 cookies 有效${status.uname ? `：${status.uname}` : ''}` +
           (status.mid ? `（UID ${status.mid}）` : ''),
         )
         if (this.config.biliRefreshToken) {
@@ -519,6 +519,16 @@ export class BiliCookieManager {
     })
     if (!res.ok) throw new Error(`Bilibili HTTP ${res.status}`)
     return res
+  }
+
+  /** 启动检查/有效状态这类例行日志只在 debug 时输出。 */
+  private info(message: string) {
+    if (!this.config.debug) return
+    try {
+      this.ctx.logger.info(`[chatluna-video] ${message}`)
+    } catch {
+      /* ignore */
+    }
   }
 
   private warn(message: string) {
